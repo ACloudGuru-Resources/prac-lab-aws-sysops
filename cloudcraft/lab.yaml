@@ -3,7 +3,7 @@ Description: ACG Challenge Lab and Self-Assessor
 Parameters: 
   BucketContents: 
     Type: String
-    Default: https://github.com/ACloudGuru-Resources/prac-lab-aws-sysops/raw/master/s3site/Archive.zip
+    Default: https://github.com/ACloudGuru-Resources/prac-lab-aws-sysops/raw/main/s3site/Archive.zip
     Description: Public link to ZIP file to populate the S3 bucket with for Static Website
 Resources:
   S3Bucket:
