@@ -1,60 +1,64 @@
 import boto3
 import json
 
-# Assessment Task 1 - Check if Snapshot Exists
+
+# Assessment Task 1 - Check an RDS Snapshot specified ARN exists
+
 def task_snapshotexists(arn):
     clientRds = boto3.client('rds')
     
-    # Attempts to 
+    # Attempts to get the RDS snapshot with that ARN
     try:
-        response = clientRds.describe_db_snapshots(DBSnapshotIdentifier=arn)
-        
-        if task_snapshotencrypted(response['DBSnapshotIdentifier']):
-            return True
+        snapshot = clientRds.describe_db_snapshots(DBSnapshotIdentifier=arn)
+        return True
     except:
         return False
 
-# Assessment Task 2 - Confirm encryption using Customer Managed Key
+
+# Assessment Task 2 - Confirm EBS encryption using any Customer Managed Key on 
+# an RDS Snapshot
+
 def task_snapshotencrypted(arn):
+    # Initializes boto clients for KMS and RDS
     clientKms = boto3.client('kms')
-    clientRxs = boto3.client('rds')
+    clientRds = boto3.client('rds')
     
-    # Creates a list of Customer Managed Key ARN's
-    keys = []
-    for k in clientKms.list_keys():
-        key = clientKms.describe_key(KeyID=k['KeyArn'])
-        
-        if key['ManagedBy'] == "CUSTOMER":
-            keys.extend(key['Arn'])
-    
-    # Confirms whether Snapshot's KMS Key's ARN is Customer Managed
+    # Encapsulates in a `try` in case an error is thrown
     try:
-        response = clientRds.describe_db_snapshots(DBSnapshotIdentifier=arn)
+        # Checks the KMS Key Details used to encrypt the snapshot
+        snapshot = clientRds.describe_db_snapshots(DBSnapshotIdentifier=arn)
+        key = clientKms.describe_key(KeyId=snapshot['DBSnapshots'][0]['KmsKeyId'])
         
-        if snapshot['KmsKeyId'] in keys:
+        # Confirms that the key is customer-managed
+        if (key['KeyMetadata']['KeyManager'] == 'CUSTOMER'):
             return True
         else:
-            raise
+            return False
     except:
         return False
 
+
 # Assesses whether a student has passed or failed the assessment. Each check
-# performed iteratively. Can be modified to return values for partial
-# completion
-# 
-# Return `True` for pass, and `False` for failure
-def assessment_check(event, context):
-    task1 = task_snapshotexists(event['arn'])
-    task2 = task_snapshotencrypted(event['arn'])
+# performed iteratively. The `tasks` array is updated to list the functions that
+# validate the students work as a boolean
+
+def assess_tasks(event, context):
+    # Modify array to include commands for each task
+    tasks = [
+        task_snapshotexists(event['queryStringParameters']['arn']),
+        task_snapshotencrypted(event['queryStringParameters']['arn'])
+        ]
     
-    if task1 and task2:
-        return True
-    else:
-        return False
+    # If any task is False, whole function immediately returns False
+    for t in tasks:
+        if t is False:
+            return False
     
-# Passes the result back to the API for the Assessment Tool
+    # If no tasks are false, the assessment is successful
+    return True
+
 def lambda_handler(event, context):
-    result = assessment_check(event, context)
+    result = assess_tasks(event, context)
     
     if result:
         return {
