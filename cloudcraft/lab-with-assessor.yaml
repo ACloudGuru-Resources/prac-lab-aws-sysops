@@ -1,0 +1,290 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ACG Challenge Lab and Self-Assessor
+Parameters: 
+  BucketContents: 
+    Type: String
+    Default: https://github.com/ACloudGuru-Resources/prac-lab-aws-sysops/raw/main/s3site/Archive.zip
+    Description: Public link to ZIP file to populate the S3 bucket with for Static Website
+Resources:
+  APIGateway:
+    Type: "AWS::ApiGateway::RestApi"
+    Properties:
+      Name: "assessor-api"
+      Description: "Assessment API for Hands-on Lab"
+  OptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      RestApiId: !Ref "APIGateway"
+      ResourceId: !GetAtt "APIGateway.RootResourceId"
+      HttpMethod: OPTIONS
+      Integration:
+        IntegrationResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+            method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+            method.response.header.Access-Control-Allow-Origin: "'*'"
+          ResponseTemplates:
+            application/json: ''
+        PassthroughBehavior: WHEN_NO_MATCH
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        Type: MOCK
+      MethodResponses:
+      - StatusCode: 200
+        ResponseModels:
+          application/json: 'Empty'
+        ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+            method.response.header.Access-Control-Allow-Origin: false
+          
+  APIGatewayMethod:
+    Type: "AWS::ApiGateway::Method"
+    Properties:
+      AuthorizationType: "NONE"
+      HttpMethod: "POST"
+      RequestParameters:
+        method.request.querystring.arn: "true"
+      Integration:
+        IntegrationHttpMethod: "POST"
+        Type: "AWS_PROXY"
+        Uri: !Sub
+          - "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${lambdaArn}/invocations"
+          - lambdaArn: !GetAtt "LambdaAssessor.Arn"
+      ResourceId: !GetAtt "APIGateway.RootResourceId"
+      RestApiId: !Ref "APIGateway"
+
+  apiGatewayDeployment:
+    Type: "AWS::ApiGateway::Deployment"
+    DependsOn:
+      - "APIGatewayMethod"
+    Properties:
+      RestApiId: !Ref "APIGateway"
+      StageName: "prod"
+
+  LambdaAPIGatewayInvokePerm:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !GetAtt "LambdaAssessor.Arn"
+      Principal: "apigateway.amazonaws.com"
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${APIGateway}/*/POST/"
+
+  S3Bucket:
+      Type: 'AWS::S3::Bucket'
+      Properties:
+          AccessControl: PublicRead
+          MetricsConfigurations:
+              - Id: EntireBucket
+          WebsiteConfiguration:
+              IndexDocument: index.html
+              ErrorDocument: error.html
+      DeletionPolicy: Retain
+  RoleLambdaS3TextFileCreator:
+    Type: AWS::IAM::Role
+    Properties:
+      ManagedPolicyArns:
+        - !Ref "PolicyManagedLambdaS3TextFileCreator"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+  PolicyManagedLambdaS3TextFileCreator:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Join
+        - "-"
+        - - !Ref "AWS::StackName"
+          - PolicyManagedLambdaS3TextFileCreator
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:ListAllMyBuckets
+              - s3:GetBucketLocation
+            Resource:
+              - arn:aws:s3:::*
+          - Effect: Allow
+            Action:
+              - s3:*
+            Resource:
+              - !GetAtt "S3Bucket.Arn"
+              - !Join
+                - ""
+                - - !GetAtt "S3Bucket.Arn"
+                  - /*
+          - Effect: Allow
+            Action:
+              - logs:*
+            Resource:
+              - arn:aws:logs:*:*:*
+  LambdaLookupFileCreator:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Generate text lookup file in lab s3 bucket.
+      Handler: index.lambda_handler
+      Role: !GetAtt "RoleLambdaS3TextFileCreator.Arn"
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: !Join
+          - "\n"
+          - - import cfnresponse;
+            - import json;
+            - import boto3;
+            - import os;
+            - import glob;
+            - import urllib.request;
+            - import zipfile;
+            - import tempfile;
+            - import mimetypes;
+            - ""
+            - "def lambda_handler(event, context):"
+            - ""
+            - "    responseData = {};"
+            - ""
+            - "    try:"
+            - !Join
+              - ""
+              - - "        bucket = '"
+                - !Ref "S3Bucket"
+                - "'"
+            - !Join
+              - ""
+              - - "        archive = '"
+                - !Ref "BucketContents"
+                - "'"
+            - "        client = boto3.client('s3');"
+            - ""
+            - "        temppath = tempfile.gettempdir()"
+            - "        urllib.request.urlretrieve(archive, '/tmp/archive.zip')"
+            - "        zipdata = zipfile.ZipFile('/tmp/archive.zip')"
+            - "        zipdata.extractall('/tmp/s3site/')"
+            - "        # unzipped the archive to /tmp/s3site"
+            - "        print(glob.glob('/tmp/s3site/*.*'))"
+            - "        for root,dirs,files in os.walk('/tmp/s3site/'):"
+            - "          for file in files:"
+            - "            content_type = mimetypes.guess_type(file)[0]"
+            - "            client.upload_file(os.path.join(root,file),bucket,file,ExtraArgs={'ACL':'public-read','ContentType': content_type})"
+            - "        print('Populated s3://' + bucket);"
+            - "        responseData['bucket'] = bucket;"
+            - ""
+            - "        cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData
+              );"
+            - "        print('Successfully populated S3 bucket.');"
+            - ""
+            - "    except Exception as e:"
+            - "        print('### Error uploading files: ');"
+            - "        print(e);"
+            - "        cfnresponse.send(event, context, cfnresponse.FAILED, responseData
+              );"
+  LambdaAssessor:
+    Type: AWS::Lambda::Function
+    Properties:
+      Description: Assess Students Lab
+      Handler: index.lambda_handler
+      Role: !GetAtt "RoleLambdaS3TextFileCreator.Arn"
+      Runtime: python3.7
+      Timeout: 60
+      Code:
+        ZipFile: >
+          import boto3, json
+
+          # Assessment Task 1 - Check an RDS Snapshot specified ARN exists
+
+          def task_snapshotexists(arn):
+              clientRds = boto3.client('rds')
+              
+              # Attempts to get the RDS snapshot with that ARN
+              try:
+                  snapshot = clientRds.describe_db_snapshots(DBSnapshotIdentifier=arn)
+                  return True
+              except:
+                  return False
+
+
+          # Assessment Task 2 - Confirm EBS encryption using any Customer Managed Key on 
+          # an RDS Snapshot
+
+          def task_snapshotencrypted(arn):
+              # Initializes boto clients for KMS and RDS
+              clientKms = boto3.client('kms')
+              clientRds = boto3.client('rds')
+              
+              # Encapsulates in a `try` in case an error is thrown
+              try:
+                  # Checks the KMS Key Details used to encrypt the snapshot
+                  snapshot = clientRds.describe_db_snapshots(DBSnapshotIdentifier=arn)
+                  key = clientKms.describe_key(KeyId=snapshot['DBSnapshots'][0]['KmsKeyId'])
+                  
+                  # Confirms that the key is customer-managed
+                  if (key['KeyMetadata']['KeyManager'] == 'CUSTOMER'):
+                      return True
+                  else:
+                      return False
+              except:
+                  return False
+
+
+          # Assesses whether a student has passed or failed the assessment. Each check
+          # performed iteratively. The `tasks` array is updated to list the functions that
+          # validate the students work as a boolean
+
+          def assess_tasks(event, context):
+              # Modify array to include commands for each task
+              tasks = [
+                  task_snapshotexists(event['queryStringParameters']['arn']),
+                  task_snapshotencrypted(event['queryStringParameters']['arn'])
+                  ]
+              
+              # If any task is False, whole function immediately returns False
+              for t in tasks:
+                  if t is False:
+                      return False
+              
+              # If no tasks are false, the assessment is successful
+              return True
+
+          def lambda_handler(event, context):
+              result = assess_tasks(event, context)
+              
+              if result:
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps('Successful!')
+                  }
+              else:
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps('Unsuccessful!')
+                  }
+
+  DeployS3Contents:
+    Type: Custom::CustomLookupFile
+    Properties:
+      ServiceToken: !GetAtt "LambdaLookupFileCreator.Arn"
+Outputs:
+  pubIpAddress1:
+    Value:
+      'Fn::GetAtt':
+        - S3Bucket
+        - WebsiteURL
+    Description: URL for submitting your answer
+  S3BucketSecureURL:
+    Value:
+      'Fn::Join':
+        - ''
+        - - 'https://'
+          - 'Fn::GetAtt':
+              - S3Bucket
+              - DomainName
+    Description: Name of S3 bucket to hold website content
