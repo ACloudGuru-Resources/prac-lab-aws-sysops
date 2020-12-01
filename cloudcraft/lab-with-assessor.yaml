@@ -288,12 +288,22 @@ Resources:
               if result:
                   return {
                       'statusCode': 200,
+                      'headers': {
+                      'Access-Control-Allow-Headers': 'Content-Type',
+                      'Access-Control-Allow-Origin': '*',
+                      'Access-Control-Allow-Methods': 'OPTIONS,POST,GET'
+                      },
                       'body': json.dumps('Successful!')
                   }
               else:
                   return {
                       'statusCode': 200,
-                      'body': json.dumps('Unsuccessful!')
+                      'headers': {
+                      'Access-Control-Allow-Headers': 'Content-Type',
+                      'Access-Control-Allow-Origin': '*',
+                      'Access-Control-Allow-Methods': 'OPTIONS,POST,GET'
+                      },
+                      'body': json.dumps('Unsuccessful! Try again or check the solution video for some tips')
                   }
   DeployS3Contents:
     Type: 'Custom::CustomLookupFile'
