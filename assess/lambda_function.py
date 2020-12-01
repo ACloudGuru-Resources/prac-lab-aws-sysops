@@ -68,5 +68,5 @@ def lambda_handler(event, context):
     else:
         return {
             'statusCode': 200,
-            'body': json.dumps('Unsuccessful!')
+            'body': json.dumps('Unsuccessful! Try again or check the solution video for some tips.')
         }
