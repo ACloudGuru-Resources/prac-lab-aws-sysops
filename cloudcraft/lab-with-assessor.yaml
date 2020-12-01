@@ -125,11 +125,12 @@ Resources:
             Action:
               - 'rds:Describe*'
             Resource:
-            - 'arn:aws:rds:::*'
+            - '*'
           - Effect: Allow
             Action:
               - 'kms:Describe*'
-            Resource: 'arn:aws:kms:::*'
+            Resource:
+            - '*'
           - Effect: Allow
             Action:
               - 's3:*'
