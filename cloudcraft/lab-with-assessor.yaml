@@ -123,6 +123,10 @@ Resources:
               - 'arn:aws:s3:::*'
           - Effect: Allow
             Action:
+              - 'rds:Describe*'
+            Resource: '*'
+          - Effect: Allow
+            Action:
               - 's3:*'
             Resource:
               - !GetAtt 
