@@ -303,7 +303,7 @@ Resources:
                       'Access-Control-Allow-Origin': '*',
                       'Access-Control-Allow-Methods': 'OPTIONS,POST,GET'
                       },
-                      'body': json.dumps('Successful!')
+                      'body': json.dumps('Congratulations! You have completed all the tasks successfully.')
                   }
               else:
                   return {
